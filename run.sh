@@ -1,0 +1,1 @@
+wget https://raw.githubusercontent.com/cjkvi/cjkvi-ids/refs/heads/master/ids.txt
