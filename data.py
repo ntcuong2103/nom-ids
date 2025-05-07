@@ -102,7 +102,7 @@ class ImageDataset(Dataset):
         # extract the images by bboxes
         images = []
         out_classes = []
-        for bbox,cls in zip(bboxes, classes):
+        for bbox,cls, box_id in zip(bboxes, classes, indices):
             if cls not in self.vocab.ids_dict:
                 continue
             x, y, w, h = bbox
@@ -112,6 +112,10 @@ class ImageDataset(Dataset):
             y2 = min(image.height, int(y + h / 2))
             # crop the image
             image_cropped = image.crop((x1, y1, x2, y2))
+            # check size of the cropped image
+            if image_cropped.size[0] < 1 or image_cropped.size[1] < 1:
+                print(f"Invalid crop size for {image_path} at index {box_id}. Skipping.")
+                continue
 
             if self.transform:
                 image_cropped = self.transform(image_cropped)

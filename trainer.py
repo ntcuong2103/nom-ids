@@ -1,7 +1,7 @@
 from data import ImageDataModule, SeqVocab
 from lit_trainer import LitBTTR
 from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
+from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, EarlyStopping
 
 import wandb
 from pytorch_lightning.loggers import WandbLogger
@@ -15,8 +15,8 @@ if __name__ == "__main__":
     dm = ImageDataModule(
         data_dir='datasets/tkh-mth2k2/MTH1000',
         vocab=SeqVocab(base_vocab, ids_dict),  # Replace with your vocabulary
-        batch_size=8,
-        num_workers=4
+        batch_size=32,
+        num_workers=8
     )
 
     # dm.setup(stage='fit')
@@ -29,6 +29,7 @@ if __name__ == "__main__":
         callbacks = [
             LearningRateMonitor(logging_interval='epoch'),
             ModelCheckpoint(filename='{epoch}-{step}-{val_ExpRate:.4f}', save_top_k=5, monitor='val_ExpRate', mode='max'),
+            EarlyStopping(monitor='val_ExpRate', patience=10, mode='max', verbose=True),
         ], 
         check_val_every_n_epoch=1,
         fast_dev_run=False,
@@ -39,5 +40,5 @@ if __name__ == "__main__":
         logger=WandbLogger(),
     )
 
-    trainer.fit(model, dm)
+    trainer.fit(model, dm, ckpt_path=None)
     wandb.finish()
