@@ -162,7 +162,7 @@ class Encoder(pl.LightningModule):
         Parameters
         ----------
         img : FloatTensor
-            [b, 1, h', w']
+            [b, 3, h', w']
         img_mask: LongTensor
             [b, h', w']
 

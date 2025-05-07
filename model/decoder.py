@@ -187,9 +187,9 @@ class Decoder(pl.LightningModule):
             decode_outputs = self(exp_src, exp_mask, hypotheses)[:, t, :]
             log_p_t = F.log_softmax(decode_outputs, dim=-1)
 
+            vocab_size = log_p_t.size(-1)
             live_hyp_num = beam_size - len(completed_hypotheses)
-            exp_hyp_scores = repeat(hyp_scores, "b -> b e", e=vocab_size)
-            continuous_hyp_scores = rearrange(exp_hyp_scores + log_p_t, "b e -> (b e)")
+            continuous_hyp_scores = rearrange(hyp_scores.unsqueeze(1) + log_p_t, "b e -> (b e)")
             top_cand_hyp_scores, top_cand_hyp_pos = torch.topk(
                 continuous_hyp_scores, k=live_hyp_num
             )

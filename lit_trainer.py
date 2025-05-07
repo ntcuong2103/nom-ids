@@ -118,7 +118,7 @@ class LitBTTR(pl.LightningModule):
         -------
         """
         assert img.dim() == 3
-        img_mask = torch.zeros_like(img, dtype=torch.long)  # squeeze channel
+        img_mask = torch.zeros(img.shape[1:], dtype=torch.long, device=self.device).unsqueeze(0) # [1, h, w]
         hyps = self.bttr.beam_search(img.unsqueeze(0), img_mask, beam_size, max_len)
         best_hyp = max(hyps, key=lambda h: h.score / (len(h) ** alpha))
         return best_hyp.seq

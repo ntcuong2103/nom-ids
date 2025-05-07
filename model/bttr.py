@@ -72,7 +72,7 @@ class BTTR(pl.LightningModule):
         Parameters
         ----------
         img : FloatTensor
-            [1, 1, h', w']
+            [1, 3, h', w']
         img_mask: LongTensor
             [1, h', w']
         beam_size : int
