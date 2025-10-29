@@ -1,7 +1,6 @@
 
 # Image dataset class pytorch
 import os
-import PIL
 import numpy as np
 import torch
 from torch.utils.data import Dataset
@@ -12,6 +11,7 @@ from typing import List
 from torch import FloatTensor, LongTensor
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader
+from dataclasses import dataclass
 
 base_vocab = open('vocab_ids.txt', 'r').read().split('\n')
 ids_dict = {line.strip().split('\t')[0]:line.strip().split('\t')[1] for line in open('ids_exp.txt', 'r').readlines()}
@@ -32,6 +32,8 @@ class Vocab:
         return self.size
     
     def encode(self, c):
+        if c == '0':
+            return []
         return [self.char2id[c] for c in self.ids_dict[c]]
 
     def decode(self, ids):
@@ -51,16 +53,14 @@ class SeqVocab(Vocab):
 
 
 class ImageDataset(Dataset):
-    def __init__(self, data_dir, vocab, transform=None, num_samples=10):
+    def __init__(self, data_dir, vocab, transform=None, num_samples=10, expand_ratio=1.2):
         self.data_dir = data_dir
-        self.transform = transforms.Compose([
-            transforms.Resize(size=120, max_size=128),
-            transforms.RandomInvert(p=1.0),
-        ]) 
+        self.transform = transform
         self.vocab = vocab
         self.image_paths = []
         self.label_paths = []
         self.num_samples = num_samples
+        self.expand_ratio = expand_ratio
         self.load_data()
 
     def load_data(self):
@@ -103,9 +103,14 @@ class ImageDataset(Dataset):
         images = []
         out_classes = []
         for bbox,cls, box_id in zip(bboxes, classes, indices):
-            if cls not in self.vocab.ids_dict:
+            if cls not in self.vocab.ids_dict and cls != '0':
                 continue
             x, y, w, h = bbox
+            # make equal crop
+            w = max(w, h) * self.expand_ratio
+            h = w
+
+            # calculate coordinates
             x1 = max(0, int(x - w / 2))
             y1 = max(0, int(y - h / 2))
             x2 = min(image.width, int(x + w / 2))
@@ -120,24 +125,15 @@ class ImageDataset(Dataset):
             if self.transform:
                 image_cropped = self.transform(image_cropped)
             
-            width, height = image_cropped.size
-
-            # pad the image to 128x128
-            pad_x = max(0, 128 - width)
-            pad_y = max(0, 128 - height)
-            image_cropped_norm = Image.new('RGB', (128, 128), (0, 0, 0))
-            image_cropped_norm.paste(image_cropped, (pad_x // 2, pad_y // 2))
-
-            # os.makedirs(os.path.join(self.data_dir, 'crops'), exist_ok=True)
-            # image_cropped_norm.save(os.path.join(self.data_dir, 'crops', f'{idx}_{cls}.png'))
+            # save cropped image for visualization
+            os.makedirs(os.path.join(self.data_dir, 'crops'), exist_ok=True)
+            image_cropped.save(os.path.join(self.data_dir, 'crops', f'{idx}_{cls}.png'))
             
-            images.append(image_cropped_norm)
+            images.append(image_cropped)
             out_classes.append(cls)
         
         return [f'{path}@{idx}' for path, idx in zip([image_path] * len(indices), indices) ], images, [self.vocab.encode(cls) for cls in out_classes]
 
-
-from dataclasses import dataclass
 
 @dataclass
 class Batch:
@@ -174,25 +170,47 @@ def collate_fn(batch):
 
 # Lightning datamodule
 class ImageDataModule(pl.LightningDataModule):
-    def __init__(self, data_dir, vocab, batch_size=32, num_workers=4):
+    def __init__(self, data_dir, vocab, batch_size=32, num_workers=4, num_samples=10):
         super().__init__()
         self.data_dir = data_dir
         self.vocab = vocab
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.num_samples = num_samples
+        
+        self.train_transforms = transforms.Compose([
+            transforms.Resize(size=128+16),
+            transforms.RandomRotation(degrees=15),
+            transforms.CenterCrop(size=128+8),
+            transforms.RandomCrop(size=128),
+            transforms.RandomInvert(p=1.0),
+        ])
+        
+        self.eval_transforms = transforms.Compose([
+            transforms.Resize(size=128),
+            transforms.RandomCrop(size=128),
+            transforms.RandomInvert(p=1.0),
+        ])
 
     def train_dataloader(self):
-        dataset = ImageDataset(self.data_dir, self.vocab)
+        dataset = ImageDataset(self.data_dir, self.vocab, num_samples=self.num_samples, transform=self.train_transforms)
         return DataLoader(dataset, batch_size=self.batch_size, shuffle=True, num_workers=self.num_workers, collate_fn=collate_fn)
 
     def val_dataloader(self):
-        dataset = ImageDataset(self.data_dir, self.vocab)
+        dataset = ImageDataset(self.data_dir, self.vocab, num_samples=self.num_samples, transform=self.eval_transforms)
         return DataLoader(dataset, batch_size=self.batch_size, shuffle=False, num_workers=self.num_workers, collate_fn=collate_fn)
 
 if __name__ == '__main__':
-    data_dir = 'datasets/tkh-mth2k2/MTH1000'  
+    data_dir = 'datasets/nom-nakagawa-lab'  
+    train_transforms = transforms.Compose([
+        transforms.Resize(size=128+16),
+        transforms.RandomRotation(degrees=15),
+        transforms.CenterCrop(size=128+8),
+        transforms.RandomCrop(size=128),
+        transforms.RandomInvert(p=1.0),
+    ])
     
-    dataset = ImageDataset(data_dir, SeqVocab(base_vocab, ids_dict), num_samples=10)
+    dataset = ImageDataset(data_dir, SeqVocab(base_vocab, ids_dict), num_samples=10, transform=train_transforms)
 
     from torch.utils.data import DataLoader
 

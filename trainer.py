@@ -15,8 +15,9 @@ if __name__ == "__main__":
     dm = ImageDataModule(
         data_dir='datasets/tkh-mth2k2/MTH1000',
         vocab=SeqVocab(base_vocab, ids_dict),  # Replace with your vocabulary
-        batch_size=32,
-        num_workers=8
+        batch_size=8,
+        num_workers=8,
+        num_samples=40,
     )
 
     # dm.setup(stage='fit')
