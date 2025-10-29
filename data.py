@@ -125,9 +125,9 @@ class ImageDataset(Dataset):
             if self.transform:
                 image_cropped = self.transform(image_cropped)
             
-            # save cropped image for visualization
-            os.makedirs(os.path.join(self.data_dir, 'crops'), exist_ok=True)
-            image_cropped.save(os.path.join(self.data_dir, 'crops', f'{idx}_{cls}.png'))
+            # # save cropped image for visualization
+            # os.makedirs(os.path.join(self.data_dir, 'crops'), exist_ok=True)
+            # image_cropped.save(os.path.join(self.data_dir, 'crops', f'{idx}_{cls}.png'))
             
             images.append(image_cropped)
             out_classes.append(cls)
