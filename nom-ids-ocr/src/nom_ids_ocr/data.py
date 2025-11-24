@@ -165,6 +165,9 @@ def collate_fn(batch):
     # 
     seqs_y = [seq for seqs in seqs_y for seq in seqs]
 
+    from itertools import chain
+    fnames = list(chain.from_iterable(fnames))
+
     return Batch(fnames, images_x, mask_x, seqs_y)
 
 
