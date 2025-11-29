@@ -13,7 +13,7 @@ if __name__ == "__main__":
     wandb.init(project="nom-ids-train", name="BTTR", entity="ntcuong2103-vietnamese-german-university")
 
     dm = ImageDataModule(
-        data_dir='datasets/tkh-mth2k2/MTH1000',
+        data_dir='datasets/nomnaocr',
         vocab=SeqVocab(base_vocab, ids_dict),  # Replace with your vocabulary
         batch_size=8,
         num_workers=8,
@@ -29,17 +29,17 @@ if __name__ == "__main__":
     trainer = Trainer(
         callbacks = [
             LearningRateMonitor(logging_interval='epoch'),
-            ModelCheckpoint(filename='{epoch}-{step}-{val_ExpRate:.4f}', save_top_k=5, monitor='val_ExpRate', mode='max'),
+            ModelCheckpoint(dirpath='checkpoints', filename='{epoch}-{step}-{val_ExpRate:.4f}', save_top_k=5, monitor='val_ExpRate', mode='max'),
             EarlyStopping(monitor='val_ExpRate', patience=10, mode='max', verbose=True),
         ], 
         check_val_every_n_epoch=1,
         fast_dev_run=False,
         deterministic=False, 
-        max_epochs=200, 
+        max_epochs=250, 
         accelerator='gpu',
         devices=1,
         logger=WandbLogger(),
     )
 
-    trainer.fit(model, dm, ckpt_path=None)
+    trainer.fit(model, dm, ckpt_path='checkpoints/epoch=199-step=19048-val_ExpRate=0.9508.ckpt')
     wandb.finish()

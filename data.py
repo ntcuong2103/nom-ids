@@ -12,6 +12,7 @@ from torch import FloatTensor, LongTensor
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 from dataclasses import dataclass
+from pathlib import Path
 
 base_vocab = open('vocab_ids.txt', 'r').read().split('\n')
 ids_dict = {line.strip().split('\t')[0]:line.strip().split('\t')[1] for line in open('ids_exp.txt', 'r').readlines()}
@@ -53,8 +54,9 @@ class SeqVocab(Vocab):
 
 
 class ImageDataset(Dataset):
-    def __init__(self, data_dir, vocab, transform=None, num_samples=10, expand_ratio=1.2):
-        self.data_dir = data_dir
+    def __init__(self, image_dir, label_dir, vocab, transform=None, num_samples=10, expand_ratio=1.2):
+        self.image_dir = Path(image_dir) # Convert to Path object
+        self.label_dir = Path(label_dir) # Convert to Path object
         self.transform = transform
         self.vocab = vocab
         self.image_paths = []
@@ -64,17 +66,23 @@ class ImageDataset(Dataset):
         self.load_data()
 
     def load_data(self):
-        for root, _, files in os.walk(f'{self.data_dir}/images'):
-            for file in files:
-                if file.endswith(('.png', '.jpg', '.jpeg')):
-                    self.image_paths.append(os.path.join(root, file))
-                    self.label_paths.append(os.path.join(self.data_dir, 'labels', file.replace('.png', '.txt').replace('.jpg', '.txt').replace('.jpeg', '.txt')))
+        # Clear previous lists in case load_data is called multiple times
+        self.image_paths = []
+        self.label_paths = []
 
-                    # check if label file exists
-                    if not os.path.exists(self.label_paths[-1]):
-                        print(f"Label file not found for {file}. Skipping.")
-                        self.image_paths.pop()
-                        self.label_paths.pop()
+        for image_path in self.image_dir.rglob('*'): # Use rglob for recursive search
+            if image_path.suffix.lower() in ('.png', '.jpg', '.jpeg'):
+                # Construct corresponding label path
+                relative_path = image_path.relative_to(self.image_dir)
+                label_path = (self.label_dir / relative_path).with_suffix('.txt')
+
+                # Check if label file exists
+                if label_path.exists():
+                    self.image_paths.append(image_path)
+                    self.label_paths.append(label_path)
+                else:
+                    print(f"Label file not found for {image_path}. Skipping.")
+
 
     def __len__(self):
         return len(self.image_paths)
@@ -87,7 +95,12 @@ class ImageDataset(Dataset):
         with open(label_path, 'r') as f:
             labels = f.readlines()
         classes = [label.strip().split()[0] for label in labels]
-        bboxes = [list(map(float, label.strip().split()[1:])) for label in labels]
+        bboxes = [list(map(float, label.strip().split()[1:5])) for label in labels]
+        selections = None
+        if len(labels[0].strip().split()) == 6:
+            selections = np.array([label.strip().split()[-1] for label in labels]).astype(float)
+            if selections.sum() == 0:
+                selections = None
         classes = np.array(classes)
         bboxes = np.array(bboxes)
         bboxes = bboxes * np.array([image.width, image.height, image.width, image.height])
@@ -95,7 +108,10 @@ class ImageDataset(Dataset):
 
         # random select num_samples
         num_samples = min(len(bboxes), self.num_samples)
-        indices = np.random.choice(len(bboxes), num_samples, replace=False)
+        if selections is not None:
+            num_samples = min(selections.astype(int).sum(), self.num_samples)
+            selections = selections / selections.sum()
+        indices = np.random.choice(len(bboxes), num_samples, replace=False, p=selections)
         bboxes = bboxes[indices]
         classes = classes[indices]
     
@@ -172,7 +188,8 @@ def collate_fn(batch):
 class ImageDataModule(pl.LightningDataModule):
     def __init__(self, data_dir, vocab, batch_size=32, num_workers=4, num_samples=10):
         super().__init__()
-        self.data_dir = data_dir
+        self.image_dir = Path(data_dir) / 'images'
+        self.label_dir = Path(data_dir) / 'labels'
         self.vocab = vocab
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -193,15 +210,16 @@ class ImageDataModule(pl.LightningDataModule):
         ])
 
     def train_dataloader(self):
-        dataset = ImageDataset(self.data_dir, self.vocab, num_samples=self.num_samples, transform=self.train_transforms)
+        dataset = ImageDataset(self.image_dir, self.label_dir, self.vocab, num_samples=self.num_samples, transform=self.train_transforms)
         return DataLoader(dataset, batch_size=self.batch_size, shuffle=True, num_workers=self.num_workers, collate_fn=collate_fn)
 
     def val_dataloader(self):
-        dataset = ImageDataset(self.data_dir, self.vocab, num_samples=self.num_samples, transform=self.eval_transforms)
+        dataset = ImageDataset(self.image_dir, self.label_dir, self.vocab, num_samples=self.num_samples, transform=self.eval_transforms)
         return DataLoader(dataset, batch_size=self.batch_size, shuffle=False, num_workers=self.num_workers, collate_fn=collate_fn)
 
 if __name__ == '__main__':
-    data_dir = 'datasets/nom-nakagawa-lab'  
+    image_dir = Path('datasets/test_demo/images')
+    label_dir = Path('datasets/test_demo/labels')    
     train_transforms = transforms.Compose([
         transforms.Resize(size=128+16),
         transforms.RandomRotation(degrees=15),
@@ -210,7 +228,7 @@ if __name__ == '__main__':
         transforms.RandomInvert(p=1.0),
     ])
     
-    dataset = ImageDataset(data_dir, SeqVocab(base_vocab, ids_dict), num_samples=10, transform=train_transforms)
+    dataset = ImageDataset(image_dir, label_dir, SeqVocab(base_vocab, ids_dict), num_samples=10, transform=train_transforms)
 
     from torch.utils.data import DataLoader
 
