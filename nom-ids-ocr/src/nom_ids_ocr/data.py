@@ -1,5 +1,6 @@
 
 # Image dataset class pytorch
+from collections import defaultdict
 import os
 import numpy as np
 import torch
@@ -22,7 +23,10 @@ class Vocab:
         self.char2id = {c: i for i, c in self.id2char.items()}
         self.size = len(base_vocab)
         self.ids_dict = ids_dict
-        self.ids_dict_rev = {v: k for k, v in ids_dict.items()}
+        # self.ids_dict_rev = {v: k for k, v in ids_dict.items()} # reverse mapping
+        self.ids_dict_rev = defaultdict(list)
+        for k, v in ids_dict.items():
+            self.ids_dict_rev[v].append(k) 
 
         self.trie = Trie()
         for k, v in ids_dict.items():
@@ -37,10 +41,10 @@ class Vocab:
         return [self.char2id[c] for c in self.ids_dict[c]]
 
     def decode(self, ids):
-        closest = self.trie.search_fuzzy(ids, max_distance=5)
+        closest = self.trie.search_fuzzy(ids, max_distance=3)
         if len(closest) > 0:
             return self.ids_dict_rev[''.join([self.id2char[i] for i in closest[0][0]])]
-        return None
+        return self.ids_dict_rev[''.join([self.id2char[i] for i in ids])]
 
 class SeqVocab(Vocab):
     PAD_IDX = 0
