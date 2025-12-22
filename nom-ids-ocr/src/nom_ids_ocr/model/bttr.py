@@ -84,3 +84,23 @@ class BTTR(pl.LightningModule):
         """
         feature, mask = self.encoder(img, img_mask)  # [1, t, d]
         return self.decoder.beam_search(feature, mask, beam_size, max_len)
+
+    def greedy_search(
+        self, img: FloatTensor, img_mask: LongTensor, max_len: int
+    ) -> List[Hypothesis]:
+        """run bi-direction greedy search for given img
+
+        Parameters
+        ----------
+        img : FloatTensor
+            [b, 3, h', w']
+        img_mask: LongTensor
+            [b, h', w']
+        max_len : int
+
+        Returns
+        -------
+        List[Hypothesis]
+        """
+        feature, mask = self.encoder(img, img_mask)  # [b, t, d]
+        return self.decoder.greedy_search(feature, mask, max_len)

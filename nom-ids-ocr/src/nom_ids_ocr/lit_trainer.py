@@ -121,6 +121,32 @@ class LitBTTR(pl.LightningModule):
         best_hyp = max(hyps, key=lambda h: h.score / (len(h) ** alpha))
         return best_hyp.seq
 
+    def greedy_search(
+        self,
+        img: FloatTensor,
+        max_len: int = 200,
+        alpha: float = 1.0,
+        ) -> List[List[int]]:
+        '''
+        Parameters
+        ----------
+        img : FloatTensor
+            [b, 3, h, w]
+        max_len : int, optional
+            by default 200
+        Returns
+        -------
+
+        '''
+        assert img.dim() == 4
+        img_mask = torch.zeros([img.shape[0], img.shape[2], img.shape[3]], dtype=torch.long, device=self.device)
+        batch_hyps = self.bttr.greedy_search(img, img_mask, max_len)
+        decoded_seqs = []
+        for hyps in batch_hyps:
+            best_hyp = max(hyps, key=lambda h: h.score / (len(h) ** alpha))
+            decoded_seqs.append(best_hyp.seq)
+        return decoded_seqs
+
     def training_step(self, batch: Batch, _):
         tgt, out = to_bi_tgt_out(batch.indices, self.device)
         out_hat = self(batch.imgs, batch.mask, tgt)

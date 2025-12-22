@@ -124,6 +124,107 @@ class Decoder(pl.LightningModule):
 
         return out
 
+    def _greedy_search(
+        self,
+        src: FloatTensor,
+        mask: LongTensor,
+        direction: str,
+        max_len: int,
+        SOS_IDX: int = 1,
+        EOS_IDX: int = 2,
+        PAD_IDX: int = 0,
+    ) -> List[Hypothesis]:
+        """run greedy search for batch of images
+
+        Parameters
+        ----------
+        src : FloatTensor
+            [b, l, d]
+        mask: LongTensor
+            [b, l]
+        direction : str
+            one of "l2r" and "r2l"
+        max_len : int
+
+        Returns
+        -------
+        List[Hypothesis]
+            List of hypotheses for each image in batch
+        """
+        assert direction in {"l2r", "r2l"}
+        
+        batch_size = src.size(0)
+        
+        if direction == "l2r":
+            start_w = SOS_IDX
+            stop_w = EOS_IDX
+        else:
+            start_w = EOS_IDX
+            stop_w = SOS_IDX
+
+        # Initialize hypotheses for all images in batch
+        hypotheses = torch.full(
+            (batch_size, max_len + 1),
+            fill_value=PAD_IDX,
+            dtype=torch.long,
+            device=self.device,
+        )
+        hypotheses[:, 0] = start_w
+
+        # Track which sequences are still active (not finished)
+        active_mask = torch.ones(batch_size, dtype=torch.bool, device=self.device)
+        
+        for t in range(max_len):
+            # Get predictions for current timestep
+            decode_outputs = self(src, mask, hypotheses)[:, t, :]
+            log_p_t = F.log_softmax(decode_outputs, dim=-1)
+            
+            # Greedy selection: take argmax
+            next_tokens = log_p_t.argmax(dim=-1)
+            
+            # Update hypotheses only for active sequences
+            hypotheses[:, t + 1] = torch.where(
+                active_mask,
+                next_tokens,
+                torch.full_like(next_tokens, PAD_IDX)
+            )
+            
+            # Mark sequences as inactive if they generated stop token
+            active_mask = active_mask & (next_tokens != stop_w)
+            
+            # Early stopping if all sequences are done
+            if not active_mask.any():
+                break
+        
+        # Convert to list of hypotheses
+        batch_hypotheses = []
+        for b in range(batch_size):
+            # Find actual sequence length (up to stop token or max_len)
+            seq = hypotheses[b, 1:]  # Remove start token
+            
+            # Find where stop token appears
+            stop_positions = (seq == stop_w).nonzero(as_tuple=True)[0]
+            if len(stop_positions) > 0:
+                seq_len = stop_positions[0].item()
+                seq = seq[:seq_len]
+            else:
+                # No stop token found, use entire sequence (excluding padding)
+                non_pad_positions = (seq != PAD_IDX).nonzero(as_tuple=True)[0]
+                if len(non_pad_positions) > 0:
+                    seq_len = non_pad_positions[-1].item() + 1
+                    seq = seq[:seq_len]
+                else:
+                    seq = seq[:0]  # Empty sequence
+            
+            hypothesis = Hypothesis(
+                seq_tensor=seq.detach().clone(),
+                score=0.0,  # Greedy search doesn't accumulate log probabilities
+                direction=direction,
+            )
+            batch_hypotheses.append(hypothesis)
+        
+        return batch_hypotheses
+
     def _beam_search(
         self,
         src: FloatTensor,
@@ -282,6 +383,55 @@ class Decoder(pl.LightningModule):
             score = -l
             hypotheses[i].score += score
 
+    def _cross_rate_score_greedy(
+        self,
+        src: FloatTensor,
+        mask: LongTensor,
+        hypotheses: List[Hypothesis],
+        direction: str,
+        PAD_IDX: int = 0
+    ) -> None:
+        """give batch hypotheses to another model, add score to hypotheses inplace
+
+        Parameters
+        ----------
+        src : FloatTensor
+            [b, l, d]
+        mask : LongTensor
+            [b, l]
+        hypotheses : List[Hypothesis]
+            List of hypothesis, one per batch item
+        direction : str
+            one of "l2r" and "r2l"
+        """
+        assert direction in {"l2r", "r2l"}
+        
+        batch_size = src.size(0)
+        assert len(hypotheses) == batch_size, \
+            f"Number of hypothesis lists ({len(hypotheses)}) must match batch size ({batch_size})"
+        
+        # Extract one hypothesis per batch item
+        indices = [h.seq for h in hypotheses]
+        tgt, output = to_tgt_output(indices, direction, self.device)
+        
+        # Forward pass with batch
+        output_hat = self(src, mask, tgt)
+        
+        # Calculate loss
+        flat_hat = rearrange(output_hat, "b l e -> (b l) e")
+        flat = rearrange(output, "b l -> (b l)")
+        loss = F.cross_entropy(
+            flat_hat, flat, ignore_index=PAD_IDX, reduction="none"
+        )
+        
+        loss = rearrange(loss, "(b l) -> b l", b=batch_size)
+        loss = torch.sum(loss, dim=-1)
+        
+        # Update scores
+        for i, l in enumerate(loss):
+            score = -l
+            hypotheses[i].score += score
+
     def beam_search(
         self, src: FloatTensor, mask: LongTensor, beam_size: int, max_len: int
     ) -> List[Hypothesis]:
@@ -306,3 +456,35 @@ class Decoder(pl.LightningModule):
         r2l_hypos = self._beam_search(src, mask, "r2l", beam_size, max_len)
         self._cross_rate_score(src, mask, r2l_hypos, direction="l2r")
         return l2r_hypos + r2l_hypos
+    
+    def greedy_search(self, src: FloatTensor, src_mask: LongTensor, max_len: int) -> List[List[Hypothesis]]:
+        """run greedy search for batch of images
+
+        Parameters
+        ----------
+        src : FloatTensor
+            [b, l, d]
+        src_mask: LongTensor
+            [b, l]
+        max_len : int
+
+        Returns
+        -------
+        List[List[Hypothesis]]
+            List of hypotheses for each image in batch
+        """
+        l2r_hypos = self._greedy_search(src, src_mask, "l2r", max_len)
+        self._cross_rate_score_greedy(src, src_mask, l2r_hypos, direction="r2l")
+
+        r2l_hypos = self._greedy_search(src, src_mask, "r2l", max_len)
+        self._cross_rate_score_greedy(src, src_mask, r2l_hypos, direction="l2r")
+
+        batch_size = src.size(0)
+        batch_hypos = []
+        for b in range(batch_size):
+            combined_hypos = [l2r_hypos[b]] + [r2l_hypos[b]]
+            batch_hypos.append(combined_hypos)
+        
+        return batch_hypos
+
+
