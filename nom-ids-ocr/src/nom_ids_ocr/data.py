@@ -41,10 +41,14 @@ class Vocab:
         return [self.char2id[c] for c in self.ids_dict[c]]
 
     def decode(self, ids):
+        decoded = self.ids_dict_rev[''.join([self.id2char[i] for i in ids])]
+        if len(decoded) > 0:
+            return decoded
+        # fuzzy search
         closest = self.trie.search_fuzzy(ids, max_distance=3)
         if len(closest) > 0:
             return self.ids_dict_rev[''.join([self.id2char[i] for i in closest[0][0]])]
-        return self.ids_dict_rev[''.join([self.id2char[i] for i in ids])]
+        return []
 
 class SeqVocab(Vocab):
     PAD_IDX = 0
