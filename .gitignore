@@ -1,2 +1,9 @@
 BTTR/*
 wandb/
+__pycache__/
+*.py[cod]
+.venv/
+.ipynb_checkpoints/
+build/
+dist/
+*.egg-info/

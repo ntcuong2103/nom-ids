@@ -9,37 +9,59 @@ from pytorch_lightning.loggers import WandbLogger
 base_vocab = open('vocab_ids.txt', 'r').read().split('\n')
 ids_dict = {line.strip().split('\t')[0]:line.strip().split('\t')[1] for line in open('ids_exp.txt', 'r').readlines()}
 
-if __name__ == "__main__":
-    wandb.init(project="nom-ids-train", name="BTTR", entity="ntcuong2103-vietnamese-german-university")
+def main():
+    wandb.init(project="nom-ids-train", name="BTTR-v8", entity="ntcuong2103-vietnamese-german-university")
 
     dm = ImageDataModule(
         data_dir='datasets/nomnaocr',
         vocab=SeqVocab(base_vocab, ids_dict),  # Replace with your vocabulary
-        batch_size=8,
+        batch_size=4,
         num_workers=8,
-        num_samples=40,
+        num_samples=100,
     )
 
     # dm.setup(stage='fit')
     # batch = next(iter(dm.train_dataloader()))
     # exit(0)
     
-    model = LitBTTR(d_model=256, growth_rate=24, num_layers=16, nhead=8, num_decoder_layers=3, dim_feedforward=1024, dropout=0.3, beam_size=10, max_len=200, alpha=1.0, learning_rate=1.0, patience=20, vocab_size=len(dm.vocab), SOS_IDX=1, EOS_IDX=2, PAD_IDX=0)
+    # model = LitBTTR(d_model=256, growth_rate=24, num_layers=16, nhead=8, num_decoder_layers=3, dim_feedforward=1024, dropout=0.3, beam_size=10, max_len=200, alpha=1.0, learning_rate=1.0, patience=20, vocab_size=len(dm.vocab), SOS_IDX=1, EOS_IDX=2, PAD_IDX=0)
+    model = LitBTTR.load_from_checkpoint('checkpoints/v7/epoch=0-step=739-val_ExpRate=0.9790.ckpt',
+        d_model=256, 
+        growth_rate=24,
+        num_layers=16,
+        nhead=8,
+        num_decoder_layers=3,
+        dim_feedforward=1024,
+        dropout=0.3,
+        beam_size=10,
+        max_len=200,
+        alpha=1.0,
+        learning_rate=0.05,
+        patience=20,
+        vocab_size=len(dm.vocab),
+        SOS_IDX=1,
+        EOS_IDX=2,
+        PAD_IDX=0,
+    )
 
     trainer = Trainer(
         callbacks = [
             LearningRateMonitor(logging_interval='epoch'),
-            ModelCheckpoint(dirpath='checkpoints', filename='{epoch}-{step}-{val_ExpRate:.4f}', save_top_k=5, monitor='val_ExpRate', mode='max'),
+            ModelCheckpoint(dirpath='checkpoints/v8', filename='{epoch}-{step}-{val_ExpRate:.4f}', save_top_k=5, monitor='val_ExpRate', mode='max'),
             EarlyStopping(monitor='val_ExpRate', patience=10, mode='max', verbose=True),
         ], 
         check_val_every_n_epoch=1,
         fast_dev_run=False,
         deterministic=False, 
-        max_epochs=250, 
+        max_epochs=50, 
         accelerator='gpu',
-        devices=1,
+        devices=[1],
         logger=WandbLogger(),
     )
 
-    trainer.fit(model, dm, ckpt_path='checkpoints/epoch=199-step=19048-val_ExpRate=0.9508.ckpt')
+    trainer.fit(model, dm)
     wandb.finish()
+
+
+if __name__ == "__main__":
+    main()
